@@ -6,21 +6,33 @@ import io
 import os
 from PIL import Image
 
-# 1. Configuração da Página Web
+# 1. Configuração de Inicialização da Página Web
 st.set_page_config(
     page_title="Renato Frigotudo & Associados",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Nome exato do arquivo que deve estar no GitHub
-ARQUIVO_TEMPLATE = "GOIAS NOVO DFC PROJETADO-SEM CORTE.xlsx"
+# Lista inteligente de nomes possíveis para o arquivo de modelo (Template de fórmulas)
+NOMES_MODELO_POSSIVEIS = [
+    "GOIAS NOVO DFC PROJETADO-SEM CORTE.xlsx",
+    "GOIAS NOVO DFC PROJETADO-SEM CORTE.XLSX",
+    "GOIAS Novo DFC PROJETADO-SEM CORTE.xlsx",
+    "GOIAS Novo DFC Projetado-Sem Corte.xlsx"
+]
 
-# --- CABEÇALHO PERSONALIZADO ---
+ARQUIVO_TEMPLATE = None
+for nome in NOMES_MODELO_POSSIVEIS:
+    if os.path.exists(nome):
+        ARQUIVO_TEMPLATE = nome
+        break
+
+# --- CABEÇALHO COM LOGOTIPO E IDENTIFICAÇÃO ---
 col_logo, col_titulo = st.columns([1, 4])
 
 with col_logo:
     try:
+        # Tenta carregar a imagem da logo enviada
         logo = Image.open("logo.JPG")
         st.image(logo, width=150)
     except Exception:
@@ -36,31 +48,34 @@ with col_titulo:
 
 st.markdown("---")
 
-# Verificação Amigável do Arquivo de Modelo
-if not os.path.exists(ARQUIVO_TEMPLATE):
-    st.error("⚠️ Atenção: Arquivo de Configuração em Falta!")
+# Verificação de segurança: O arquivo de modelo existe no servidor GitHub?
+if ARQUIVO_TEMPLATE is None:
+    st.error("⚠️ Atenção: Arquivo de Configuração Principal não Encontrado!")
     st.markdown(f"""
-    O arquivo de modelo necessário (**`{ARQUIVO_TEMPLATE}`**) não foi encontrado no servidor do Streamlit.
+    O arquivo de fórmulas (**`GOIAS NOVO DFC PROJETADO-SEM CORTE.xlsx`**) não foi encontrado na pasta do projeto no GitHub.
     
-    ### 🛠️ Como corrigir isto em 2 passos rápidos:
+    ### 🛠️ Como corrigir isto em 2 minutos:
     1. Acede ao teu repositório **`fluxo-de-caixa-projetado`** no GitHub.
-    2. Clica em **Add file -> Upload files** e faz o upload do arquivo **`{ARQUIVO_TEMPLATE}`** para a mesma pasta onde está o teu código.
+    2. Clica em **Add file -> Upload files**.
+    3. Faz o upload do arquivo **`GOIAS NOVO DFC PROJETADO-SEM CORTE.xlsx`** para o GitHub.
     
-    *Assim que fizeres o commit no GitHub, esta página irá recarregar e funcionar automaticamente!*
+    *Assim que o upload for concluído, esta página irá recarregar e funcionar perfeitamente!*
     """)
 else:
-    # 2. BARRA LATERAL (Campos Digitados de Precisão)
+    # --- BARRA LATERAL (Ajustes de Parâmetros de Simulação) ---
     st.sidebar.header("⚙️ Configurações da Simulação")
 
     nome_cliente = st.sidebar.text_input("Nome do Cliente", value="RENATO")
 
+    # Upload do arquivo de entrada (Ex: teste.xlsx)
     arquivo_carregado = st.sidebar.file_uploader(
-        "Carrega a Planilha de Dados Históricos (.xlsx)", 
+        "Carrega o arquivo de entrada (deve ser o teste.xlsx)", 
         type=["xlsx"]
-)
+    )
 
-    st.sidebar.markdown("### 📊 Digite os percentuais de simulação:")
+    st.sidebar.markdown("### 📊 Parâmetros Digitados da Simulação:")
 
+    # Campos de introdução numérica direta para precisão matemática absoluta
     perc_receita = st.sidebar.number_input(
         "Aumento/Diminuição da Receita (%)", 
         min_value=-100.0, 
@@ -79,7 +94,7 @@ else:
         format="%.2f"
     )
 
-    # Função para localizar dinamicamente a linha pelo nome da conta
+    # Função para localizar dinamicamente a linha pelo nome da conta na coluna C (Índice 3)
     def localizar_linha(sheet, nome_conta):
         for r in range(1, sheet.max_row + 1):
             val = sheet.cell(row=r, column=3).value
@@ -87,56 +102,56 @@ else:
                 return r
         return None
 
-    # 3. COMPUTAÇÃO E SIMULAÇÃO DINÂMICA
+    # --- PROCESSAMENTO DINÂMICO E RECALCULO ---
     if arquivo_carregado is not None:
         try:
             r_adj = perc_receita / 100.0
             l_adj = perc_lucro / 100.0
 
-            # 1. Carregar os dados históricos enviados pelo usuário (ex: TESTE.xlsx)
+            # 1. Carregar os dados de entrada do usuário (Ex: teste.xlsx)
             arquivo_carregado.seek(0)
             wb_usuario = openpyxl.load_workbook(io.BytesIO(arquivo_carregado.read()), data_only=True)
-            aba_usuario_nome = wb_usuario.sheetnames[0]
+            aba_usuario_nome = wb_usuario.sheetnames[0] # Identifica automaticamente a aba "Planilha1"
             sheet_usuario = wb_usuario[aba_usuario_nome]
 
-            # 2. Carregar o arquivo de template
+            # 2. Carrega o modelo de fórmulas oficial de referência
             wb_template = openpyxl.load_workbook(ARQUIVO_TEMPLATE, data_only=False)
             sheet_bal_template = wb_template['BAL_25']
             sheet_fc_template = wb_template['FC_PROJETADO']
 
-            # Copiar os dados históricos do usuário para a aba BAL_25 do template
+            # Copia os dados históricos de teste.xlsx para dentro da aba BAL_25 do modelo
             for r in range(1, sheet_usuario.max_row + 1):
                 for c in range(1, sheet_usuario.max_column + 1):
                     val = sheet_usuario.cell(row=r, column=c).value
                     if val is not None:
                         sheet_bal_template.cell(row=r, column=c, value=val)
 
-            # Injetar os parâmetros configurados pelo utilizador no Excel físico
+            # Grava as variáveis do usuário nas células de parâmetro do modelo
             sheet_fc_template['B2'] = r_adj
             sheet_fc_template['B3'] = l_adj
             sheet_fc_template['A1'] = f"CLIENTE: {nome_cliente.upper()}"
 
-            # 3. LOCALIZAÇÃO DINÂMICA DAS LINHAS CHAVE
+            # 3. MAPEAMENTO DINÂMICO DE CONTAS POR TEXTO
             linha_receitas_operacionais = localizar_linha(sheet_bal_template, "RECEITAS OPERACIONAIS")
             linha_venda_consumidor = localizar_linha(sheet_bal_template, "1.1 Venda Consumidor Final")
             linha_compra_mercadoria = localizar_linha(sheet_bal_template, "3.1 Compra de Mercadoria")
             linha_insumos = localizar_linha(sheet_bal_template, "3.8 Insumos")
             linha_despesa_total = localizar_linha(sheet_bal_template, "DESPESA TOTAL")
 
-            # Verificação de segurança
+            # Validação de segurança dos cabeçalhos mapeados
             if not all([linha_receitas_operacionais, linha_compra_mercadoria, linha_insumos, linha_despesa_total]):
-                st.error("Erro: Não foi possível mapear todas as contas-chave necessárias na sua planilha. Verifique os nomes das contas na Coluna C.")
+                st.error("Erro: Não foi possível estruturar as contas mapeadas. Certifique-se de carregar um arquivo de entrada compatível com o teste.xlsx.")
             else:
-                colunas_meses = [4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37]
+                colunas_meses = [4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37] # D, G, J, M, P, S, V, Y, AB, AE, AH, AK
                 nomes_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
-                # --- PROCESSAMENTO DOS VALORES HISTÓRICOS ---
+                # --- EXTRAÇÃO DE VALORES HISTÓRICOS DA BAL_25 ---
                 receita_total_hist = sum(float(sheet_bal_template.cell(row=linha_receitas_operacionais, column=col).value or 0) for col in colunas_meses)
                 despesa_total_hist = sum(float(sheet_bal_template.cell(row=linha_despesa_total, column=col).value or 0) for col in colunas_meses)
                 compra_mercadoria_hist = sum(float(sheet_bal_template.cell(row=linha_compra_mercadoria, column=col).value or 0) for col in colunas_meses)
                 insumos_hist = sum(float(sheet_bal_template.cell(row=linha_insumos, column=col).value or 0) for col in colunas_meses)
 
-                # --- CÁLCULO DOS INDICADORES E FATOR DE AJUSTE (J4) ---
+                # --- CÁLCULO DOS INDICADORES FINANCEIROS REAIS (LINHA 4) ---
                 receita_projetada = receita_total_hist * (1 + r_adj)
                 despesas_variaveis_base = compra_mercadoria_hist + insumos_hist
                 
@@ -151,7 +166,9 @@ else:
                 resultado_projetado = receita_projetada - despesa_projetada
                 margem_projetada = (resultado_projetado / receita_projetada) if receita_projetada != 0 else 0.0
 
-                # --- APRESENTAÇÃO DOS INDICADORES NA TELA ---
+                # --- EXIBIÇÃO DOS INDICADORES EM TELA ---
+                st.success(f"🎉 Simulação gerada com sucesso para o cliente **{nome_cliente.upper()}**!")
+                
                 st.markdown("### 📊 Indicadores Financeiros do Cenário (Equivalente à Linha 4)")
                 col_r1, col_r2, col_r3, col_r4, col_r5 = st.columns(5)
                 with col_r1:
@@ -165,8 +182,9 @@ else:
                 with col_r5:
                     st.metric("Fator de Ajuste (J4)", f"{fator_ajuste * 100:.2f}%")
 
-                # --- CONSTRUÇÃO DA TABELA DINÂMICA INTERATIVA ---
+                # --- TABELA INTERATIVA EM TELA ---
                 st.markdown("### 📈 Visualização Dinâmica da Planilha FC_PROJETADO")
+                st.markdown("Altere os percentuais na barra lateral e veja toda a planilha recalcular-se instantaneamente!")
                 
                 linhas_visualizacao = []
                 for r in range(4, sheet_bal_template.max_row + 1):
@@ -179,6 +197,7 @@ else:
                             val = sheet_bal_template.cell(row=r, column=col_idx).value
                             valores_originais.append(float(val) if isinstance(val, (int, float)) else 0.0)
                         
+                        # Processa e calcula dinamicamente as alterações de cenário
                         if r == linha_receitas_operacionais or r == linha_venda_consumidor:
                             valores_projetados = [v * (1 + r_adj) for v in valores_originais]
                         elif r in [linha_compra_mercadoria, linha_insumos]:
@@ -197,14 +216,14 @@ else:
                         
                 df_visual = pd.DataFrame(linhas_visualizacao)
                 
-                # Formatação de visualização de moeda em tela
+                # Formatação das moedas para Real Brasileiro (R$)
                 df_formatado = df_visual.copy()
                 for col in ["Total Projetado"] + nomes_meses:
                     df_formatado[col] = df_formatado[col].apply(lambda x: f"R$ {x:,.2f}" if isinstance(x, (int, float)) else x)
                     
                 st.dataframe(df_formatado, use_container_width=True, height=450)
 
-                # --- EXCEL FÍSICO COM FÓRMULAS ---
+                # --- ATUALIZAÇÃO DO ARQUIVO EXCEL FÍSICO COM FÓRMULAS ---
                 for r in range(1, sheet_fc_template.max_row + 1):
                     cell_conta = sheet_bal_template.cell(row=r, column=3).value
                     if cell_conta == "1.1 Venda Consumidor Final":
@@ -218,7 +237,7 @@ else:
                             if isinstance(val_hist, (int, float)):
                                 sheet_fc_template.cell(row=r, column=col_idx, value=f"={sheet_bal_template.title}!{openpyxl.utils.get_column_letter(col_idx)}{r}*$J$4")
 
-                # Salvar em formato binário para download
+                # Gravação em memória para disponibilizar o download
                 output_web = io.BytesIO()
                 wb_template.save(output_web)
                 output_web.seek(0)
