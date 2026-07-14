@@ -20,7 +20,11 @@ with col_logo:
         logo = Image.open("logo.JPG")
         st.image(logo, width=150)
     except Exception:
-        st.subheader("🥩 LOGO")
+        try:
+            logo = Image.open("input_file_1.png")
+            st.image(logo, width=150)
+        except Exception:
+            st.subheader("🥩 LOGO")
 
 with col_titulo:
     st.title("Renato Frigotudo & Associados")
@@ -38,6 +42,7 @@ arquivo_carregado = st.sidebar.file_uploader(
     type=["xlsx"]
 )
 
+# Sliders interativos para manipulação rápida dos cenários
 perc_receita = st.sidebar.slider(
     "Aumento/Diminuição da Receita (%)", 
     min_value=-50.0, 
@@ -54,140 +59,104 @@ perc_lucro = st.sidebar.slider(
     step=0.5
 )
 
-# 3. PROCESSAMENTO E EXIBIÇÃO DINÂMICA
+# 3. COMPUTAÇÃO E SIMULAÇÃO DINÂMICA
 if arquivo_carregado is not None:
     try:
         r_adj = perc_receita / 100.0
         l_adj = perc_lucro / 100.0
 
-        # Carregar planilha para o Pandas para calcular e exibir de forma dinâmica na tela
+        # Carregar planilha para processamento
         xls = pd.ExcelFile(arquivo_carregado)
-        aba_nome = xls.sheet_names[0]
+        aba_nome = xls.sheet_names[0] # BAL_25
         
-        # Lemos a tabela ignorando as linhas vazias do topo para processar os números
-        df_dados = pd.read_excel(arquivo_carregado, sheet_name=aba_nome, skiprows=2)
-        
-        # Limpar linhas e colunas completamente nulas
-        df_dados = df_dados.dropna(subset=[df_dados.columns[2]])
-        
-        # --- MOTOR DE CÁLCULO DINÂMICO EM PYTHON ---
-        col_conta = df_dados.columns[2]
-        col_tipo = df_dados.columns[1] if len(df_dados.columns) > 1 else None
-        
-        # Identificar as colunas de meses (colunas que contêm os valores financeiros)
-        # No formato do arquivo, as colunas de dados começam a partir da quarta coluna (índice 3) de 3 em 3
-        colunas_meses_indices = [3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36]
-        nomes_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-        
-        # Criamos uma estrutura para guardar os dados calculados do FC_PROJETADO
-        linhas_projetadas = []
-        
-        # 1. Passo: Calcular Receita Projetada Total
-        receita_total_projetada = 0.0
-        despesa_variavel_base = 0.0
-        despesa_fixa_base = 0.0
-        
-        # Vamos primeiro varrer os dados para calcular os agregados e o fator de ajuste
-        for idx, row in df_dados.iterrows():
-            conta = str(row[col_conta]).strip()
-            
-            # Identifica valores mensais válidos
-            valores_meses = []
-            for col_idx in colunas_meses_indices:
-                if col_idx < len(row):
-                    val = row.iloc[col_idx]
-                    valores_meses.append(float(val) if pd.notna(val) and isinstance(val, (int, float)) else 0.0)
-                else:
-                    valores_meses.append(0.0)
-            
-            total_linha = sum(valores_meses)
-            
-            if conta == "1.1 Venda Consumidor Final":
-                receita_total_projetada = total_linha * (1 + r_adj)
-            elif conta in ["3.1 Compra de Mercadoria", "3.8 Insumos"]:
-                despesa_variavel_base += total_linha
-            elif "Despesa" in str(row.get(col_tipo, "")) and conta not in ["3.1 Compra de Mercadoria", "3.8 Insumos"]:
-                despesa_fixa_base += total_linha
-
-        # 2. Passo: Calcular o Fator de Ajuste das Despesas Variáveis (J4)
-        # Fórmula: Fator = (ReceitaProjetada * (1 - LucratividadeDesejada) - DespesaFixa) / DespesaVariavel
-        if despesa_variavel_base > 0:
-            numerador = (receita_total_projetada * (1 - l_adj)) - despesa_fixa_base
-            fator_ajuste = numerador / despesa_variavel_base
-            fator_ajuste = max(0.0, min(1.0, fator_ajuste)) # Limita entre 0 e 100%
-        else:
-            fator_ajuste = 1.0
-
-        # 3. Passo: Montar a tabela visual para exibição na tela
-        for idx, row in df_dados.iterrows():
-            conta = str(row[col_conta]).strip()
-            tipo = str(row.iloc[1]) if pd.notna(row.iloc[1]) else ""
-            
-            valores_originais = []
-            for col_idx in colunas_meses_indices:
-                if col_idx < len(row):
-                    val = row.iloc[col_idx]
-                    valores_originais.append(float(val) if pd.notna(val) and isinstance(val, (int, float)) else 0.0)
-                else:
-                    valores_originais.append(0.0)
-            
-            # Aplicar as regras de projeção para cada linha
-            valores_projetados = []
-            if conta == "1.1 Venda Consumidor Final" or conta == "RECEITAS OPERACIONAIS":
-                valores_projetados = [v * (1 + r_adj) for v in valores_originais]
-            elif conta in ["3.1 Compra de Mercadoria", "3.8 Insumos"]:
-                valores_projetados = [v * fator_ajuste for v in valores_originais]
-            else:
-                # Despesas fixas e saldos não sofrem alteração pelo fator de ajuste
-                valores_projetados = valores_originais
-                
-            total_projetado = sum(valores_projetados)
-            
-            # Adiciona ao nosso relatório visual
-            linhas_projetadas.append({
-                "Conta / Hierarquia": conta,
-                "Tipo": tipo,
-                "Total Projetado": total_projetado,
-                **{nomes_meses[i]: valores_projetados[i] for i in range(12)}
-            })
-            
-        df_relatorio = pd.DataFrame(linhas_projetadas)
-
-        # Interface do Usuário com Visualização Dinâmica
-        st.success(f"🎉 Simulação gerada com sucesso para o cliente **{nome_cliente.upper()}**!")
-        
-        # Painel de Métricas Principais baseadas no cenário simulado
-        col_m1, col_m2, col_m3 = st.columns(3)
-        col_m1.metric("Receita Total Projetada", f"R$ {receita_total_projetada:,.2f}")
-        col_m2.metric("Meta de Lucratividade", f"{perc_lucro}%")
-        col_m3.metric("Fator de Ajuste de Compras", f"{fator_ajuste * 100:.1f}%")
-
-        # --- EXIBIÇÃO DA PLANILHA EM TELA ---
-        st.markdown("### 📋 Visualização da Planilha FC_PROJETADO")
-        st.markdown("Esta tabela abaixo atualiza-se **imediatamente** sempre que moves os seletores na barra lateral!")
-        
-        # Formatando os valores para exibição como moeda brasileira
-        df_visual = df_relatorio.copy()
-        colunas_valores = ["Total Projetado"] + nomes_meses
-        for col in colunas_valores:
-            df_visual[col] = df_visual[col].apply(lambda x: f"R$ {x:,.2f}" if isinstance(x, (int, float)) else x)
-            
-        st.dataframe(df_visual, use_container_width=True, height=500)
-
-        # --- EXPORTAÇÃO EXCEL COM FÓRMULAS ---
-        # Recarrega para gerar o arquivo Excel físico contendo as fórmulas originais para o usuário
         arquivo_carregado.seek(0)
         wb = openpyxl.load_workbook(io.BytesIO(arquivo_carregado.read()))
-        sheet_origem = wb[aba_nome]
+        sheet_bal = wb[aba_nome]
+
+        # Índices das colunas dos meses (Janeiro a Dezembro)
+        colunas_meses = [4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37] # D, G, J, M, P, S, V, Y, AB, AE, AH, AK
+
+        # --- EXTRACÇÃO DE VALORES HISTÓRICOS DA BAL_25 ---
+        receita_total_historica = 0.0
+        despesa_total_historica = 0.0
+        compra_mercadoria_historica = 0.0
+        insumos_historicos = 0.0
+
+        for col_idx in colunas_meses:
+            # Receitas Operacionais (Linha 6)
+            val_rec = sheet_bal.cell(row=6, column=col_idx).value
+            receita_total_historica += float(val_rec) if isinstance(val_rec, (int, float)) else 0.0
+            
+            # Despesa Total (Linha 98)
+            val_desp = sheet_bal.cell(row=98, column=col_idx).value
+            despesa_total_historica += float(val_desp) if isinstance(val_desp, (int, float)) else 0.0
+
+            # Compra de Mercadoria (Linha 14)
+            val_compra = sheet_bal.cell(row=14, column=col_idx).value
+            compra_mercadoria_historica += float(val_compra) if isinstance(val_compra, (int, float)) else 0.0
+
+            # Insumos (Linha 21)
+            val_insumos = sheet_bal.cell(row=21, column=col_idx).value
+            insumos_historicos += float(val_insumos) if isinstance(val_insumos, (int, float)) else 0.0
+
+        # --- CALCULOS DE PROJEÇÃO EXATOS (Linha 4 da aba FC_PROJETADO) ---
+        # Receita Projetada (B4)
+        receita_projetada = receita_total_historica * (1 + r_adj)
         
+        # Despesa Base (L4)
+        despesa_base = despesa_total_historica
+        
+        # Despesas Variáveis Base (Soma de Compra de Mercadoria + Insumos)
+        despesas_variaveis_base = compra_mercadoria_historica + insumos_historicos
+
+        # Fator de Ajuste Despesas (J4)
+        if despesas_variaveis_base == 0:
+            fator_ajuste = 1.0
+        else:
+            numerador = (receita_projetada * (1 - l_adj)) - (despesa_base - despesas_variaveis_base)
+            fator_ajuste = numerador / despesas_variaveis_base
+            fator_ajuste = max(0.0, min(1.0, fator_ajuste)) # MAX(0, MIN(1, ...))
+
+        # Despesa Projetada (D4)
+        despesas_fixas = despesa_base - despesas_variaveis_base
+        despesa_projetada = despesas_fixas + (despesas_variaveis_base * fator_ajuste)
+
+        # Resultado Projetado (F4)
+        resultado_projetado = receita_projetada - despesa_projetada
+
+        # Margem Projetada (H4)
+        margem_projetada = (resultado_projetado / receita_projetada) if receita_projetada != 0 else 0.0
+
+        # --- EXIBIÇÃO EM TELA (LINHA 4 DO EXCEL) ---
+        st.success(f"🎉 Simulação gerada com sucesso para o cliente **{nome_cliente.upper()}**!")
+        
+        st.markdown("### 📈 Indicadores Chave de Projeção (Equivalente à Linha 4)")
+        
+        # Grid visual com os dados calculados de forma idêntica à linha 4
+        col_r1, col_r2, col_r3, col_r4, col_r5 = st.columns(5)
+        
+        with col_r1:
+            st.metric("Receita Projetada (B4)", f"R$ {receita_projetada:,.2f}")
+        with col_r2:
+            st.metric("Despesa Projetada (D4)", f"R$ {despesa_projetada:,.2f}")
+        with col_r3:
+            st.metric("Resultado Projetado (F4)", f"R$ {resultado_projetado:,.2f}")
+        with col_r4:
+            st.metric("Margem Projetada (H4)", f"{margem_projetada * 100:.2f}%")
+        with col_r5:
+            st.metric("Fator de Ajuste (J4)", f"{fator_ajuste * 100:.2f}%")
+
+        # --- GERAÇÃO DA SEGUNDA ABA COM OS VALORES ATUALIZADOS ---
+        # Se a aba FC_PROJETADO já existir, removemos para gerar uma nova limpa
         if 'FC_PROJETADO' in wb.sheetnames:
             del wb['FC_PROJETADO']
+            
         sheet_proj = wb.create_sheet(title="FC_PROJETADO")
         
-        # Copia dados e estilos
-        for r in range(1, sheet_origem.max_row + 1):
-            for c in range(1, sheet_origem.max_column + 1):
-                cell = sheet_origem.cell(row=r, column=c)
+        # Copia todo o conteúdo e estilos da aba original
+        for r in range(1, sheet_bal.max_row + 1):
+            for c in range(1, sheet_bal.max_column + 1):
+                cell = sheet_bal.cell(row=r, column=c)
                 new_cell = sheet_proj.cell(row=r, column=c, value=cell.value)
                 if cell.has_style:
                     new_cell.font = openpyxl.styles.Font(
@@ -205,43 +174,47 @@ if arquivo_carregado is not None:
                     )
                     new_cell.number_format = cell.number_format
 
-        # Injeta os parâmetros nas células do Excel para que o arquivo físico funcione
+        # Escreve os novos parâmetros fornecidos diretamente nas células
         sheet_proj['B2'] = r_adj
         sheet_proj['B3'] = l_adj
         sheet_proj['A1'] = f"CLIENTE: {nome_cliente.upper()}"
+        
+        # Escreve a fórmula exata do Fator de Ajuste na célula J4
         sheet_proj['J4'] = (
-            f"=IF(SUM(D14,G14,J14,M14,P14,S14,V14,Y14,AB14,AE14,AH14,AK14,D21,G21,J21,M21,P21,S21,V21,Y21,AB21,AE21,AH21,AK21)=0,1,"
-            f"MAX(0,MIN(1,(B4*(1-B3)-(L4-SUM(D14,G14,J14,M14,P14,S14,V14,Y14,AB14,AE14,AH14,AK14,D21,G21,J21,M21,P21,S21,V21,Y21,AB21,AE21,AH21,AK21)))"
-            f"/SUM(D14,G14,J14,M14,P14,S14,V14,Y14,AB14,AE14,AH14,AK14,D21,G21,J21,M21,P21,S21,V21,Y21,AB21,AE21,AH21,AK21))))"
+            f"=IF(SUM(BAL_25!D14,BAL_25!G14,BAL_25!J14,BAL_25!M14,BAL_25!P14,BAL_25!S14,BAL_25!V14,BAL_25!Y14,BAL_25!AB14,BAL_25!AE14,BAL_25!AH14,BAL_25!AK14,BAL_25!D21,BAL_25!G21,BAL_25!J21,BAL_25!M21,BAL_25!P21,BAL_25!S21,BAL_25!V21,BAL_25!Y21,BAL_25!AB21,BAL_25!AE21,BAL_25!AH21,BAL_25!AK21)=0,1,"
+            f"MAX(0,MIN(1,(B4*(1-B3)-(L4-SUM(BAL_25!D14,BAL_25!G14,BAL_25!J14,BAL_25!M14,BAL_25!P14,BAL_25!S14,BAL_25!V14,BAL_25!Y14,BAL_25!AB14,BAL_25!AE14,BAL_25!AH14,BAL_25!AK14,BAL_25!D21,BAL_25!G21,BAL_25!J21,BAL_25!M21,BAL_25!P21,BAL_25!S21,BAL_25!V21,BAL_25!Y21,BAL_25!AB21,BAL_25!AE21,BAL_25!AH21,BAL_25!AK21)))"
+            f"/SUM(BAL_25!D14,BAL_25!G14,BAL_25!J14,BAL_25!M14,BAL_25!P14,BAL_25!S14,BAL_25!V14,BAL_25!Y14,BAL_25!AB14,BAL_25!AE14,BAL_25!AH14,BAL_25!AK14,BAL_25!D21,BAL_25!G21,BAL_25!J21,BAL_25!M21,BAL_25!P21,BAL_25!S21,BAL_25!V21,BAL_25!Y21,BAL_25!AB21,BAL_25!AE21,BAL_25!AH21,BAL_25!AK21))))"
         )
 
+        # Atualiza os valores das receitas e despesas no arquivo gerado
         for r in range(1, sheet_proj.max_row + 1):
             cell_conta = sheet_proj.cell(row=r, column=3).value
             if cell_conta == "1.1 Venda Consumidor Final":
-                for col_idx in [4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37]:
-                    val_hist = sheet_origem.cell(row=r, column=col_idx).value
+                for col_idx in colunas_meses:
+                    val_hist = sheet_bal.cell(row=r, column=col_idx).value
                     if isinstance(val_hist, (int, float)):
                         sheet_proj.cell(row=r, column=col_idx, value=val_hist * (1 + r_adj))
             elif cell_conta in ["3.1 Compra de Mercadoria", "3.8 Insumos"]:
-                for col_idx in [4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37]:
-                    val_hist = sheet_origem.cell(row=r, column=col_idx).value
+                for col_idx in colunas_meses:
+                    val_hist = sheet_bal.cell(row=r, column=col_idx).value
                     if isinstance(val_hist, (int, float)):
-                        sheet_proj.cell(row=r, column=col_idx, value=f"={sheet_origem.title}!{openpyxl.utils.get_column_letter(col_idx)}{r}*$J$4")
+                        sheet_proj.cell(row=r, column=col_idx, value=f"={sheet_bal.title}!{openpyxl.utils.get_column_letter(col_idx)}{r}*$J$4")
 
+        # Salva em memória
         output_web = io.BytesIO()
         wb.save(output_web)
         output_web.seek(0)
 
         st.markdown("---")
-        st.markdown("### 📥 Exportar Resultados")
+        st.markdown("### 📥 Exportar Cenário")
         st.download_button(
-            label="📥 Exportar Planilha com FC_PROJETADO",
+            label="📥 Exportar Planilha com FC_PROJETADO Oficial",
             data=output_web,
             file_name=f"FC_PROJETADO_{nome_cliente.upper()}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
     except Exception as e:
-        st.error(f"Ocorreu um erro no cálculo dinâmico: {e}")
+        st.error(f"Erro no processamento matemático: {e}")
 else:
-    st.info("ℹ️ Aguardando carregamento do arquivo Excel base para iniciar a simulação dinâmica.")
+    st.info("ℹ️ Insere os dados de simulação e carrega a planilha base para ver os resultados correspondentes à linha 4.")
