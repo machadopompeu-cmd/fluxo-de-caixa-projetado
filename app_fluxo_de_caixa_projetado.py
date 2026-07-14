@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Lista inteligente de nomes possíveis para o arquivo de modelo (Template de fórmulas)
+# Lista de possíveis nomes para o arquivo de modelo (Template de fórmulas)
 NOMES_MODELO_POSSIVEIS = [
     "GOIAS NOVO DFC PROJETADO-SEM CORTE.xlsx",
     "GOIAS NOVO DFC PROJETADO-SEM CORTE.XLSX",
@@ -32,7 +32,6 @@ col_logo, col_titulo = st.columns([1, 4])
 
 with col_logo:
     try:
-        # Tenta carregar a imagem da logo enviada
         logo = Image.open("logo.JPG")
         st.image(logo, width=150)
     except Exception:
@@ -75,7 +74,6 @@ else:
 
     st.sidebar.markdown("### 📊 Parâmetros Digitados da Simulação:")
 
-    # Campos de introdução numérica direta para precisão matemática absoluta
     perc_receita = st.sidebar.number_input(
         "Aumento/Diminuição da Receita (%)", 
         min_value=-100.0, 
@@ -94,7 +92,19 @@ else:
         format="%.2f"
     )
 
-    # Função para localizar dinamicamente a linha pelo nome da conta na coluna C (Índice 3)
+    # Função auxiliar de segurança para converter valores para Float
+    def converter_para_float(valor):
+        if valor is None:
+            return 0.0
+        try:
+            # Remove símbolos comuns se o valor vier formatado como texto
+            if isinstance(valor, str):
+                valor = valor.replace("R$", "").replace(".", "").replace(",", ".").strip()
+            return float(valor)
+        except ValueError:
+            return 0.0
+
+    # Função para localizar dinamicamente a linha pelo nome da conta na coluna C
     def localizar_linha(sheet, nome_conta):
         for r in range(1, sheet.max_row + 1):
             val = sheet.cell(row=r, column=3).value
@@ -108,10 +118,12 @@ else:
             r_adj = perc_receita / 100.0
             l_adj = perc_lucro / 100.0
 
-            # 1. Carregar os dados de entrada do usuário (Ex: teste.xlsx)
-            arquivo_carregado.seek(0)
-            wb_usuario = openpyxl.load_workbook(io.BytesIO(arquivo_carregado.read()), data_only=True)
-            aba_usuario_nome = wb_usuario.sheetnames[0] # Identifica automaticamente a aba "Planilha1"
+            # CORREÇÃO CRÍTICA: Lemos os bytes do upload UMA única vez para evitar perda de buffer
+            bytes_data = arquivo_carregado.read()
+
+            # 1. Carregar os dados de entrada do usuário (Ex: teste.xlsx) em memória segura
+            wb_usuario = openpyxl.load_workbook(io.BytesIO(bytes_data), data_only=True)
+            aba_usuario_nome = wb_usuario.sheetnames[0] # Identifica automaticamente "Planilha1"
             sheet_usuario = wb_usuario[aba_usuario_nome]
 
             # 2. Carrega o modelo de fórmulas oficial de referência
@@ -145,11 +157,11 @@ else:
                 colunas_meses = [4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37] # D, G, J, M, P, S, V, Y, AB, AE, AH, AK
                 nomes_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
-                # --- EXTRAÇÃO DE VALORES HISTÓRICOS DA BAL_25 ---
-                receita_total_hist = sum(float(sheet_bal_template.cell(row=linha_receitas_operacionais, column=col).value or 0) for col in colunas_meses)
-                despesa_total_hist = sum(float(sheet_bal_template.cell(row=linha_despesa_total, column=col).value or 0) for col in colunas_meses)
-                compra_mercadoria_hist = sum(float(sheet_bal_template.cell(row=linha_compra_mercadoria, column=col).value or 0) for col in colunas_meses)
-                insumos_hist = sum(float(sheet_bal_template.cell(row=linha_insumos, column=col).value or 0) for col in colunas_meses)
+                # --- EXTRAÇÃO DE VALORES HISTÓRICOS DA BAL_25 COM TRATAMENTO DE ERROS ---
+                receita_total_hist = sum(converter_para_float(sheet_bal_template.cell(row=linha_receitas_operacionais, column=col).value) for col in colunas_meses)
+                despesa_total_hist = sum(converter_para_float(sheet_bal_template.cell(row=linha_despesa_total, column=col).value) for col in colunas_meses)
+                compra_mercadoria_hist = sum(converter_para_float(sheet_bal_template.cell(row=linha_compra_mercadoria, column=col).value) for col in colunas_meses)
+                insumos_hist = sum(converter_para_float(sheet_bal_template.cell(row=linha_insumos, column=col).value) for col in colunas_meses)
 
                 # --- CÁLCULO DOS INDICADORES FINANCEIROS REAIS (LINHA 4) ---
                 receita_projetada = receita_total_hist * (1 + r_adj)
@@ -184,7 +196,6 @@ else:
 
                 # --- TABELA INTERATIVA EM TELA ---
                 st.markdown("### 📈 Visualização Dinâmica da Planilha FC_PROJETADO")
-                st.markdown("Altere os percentuais na barra lateral e veja toda a planilha recalcular-se instantaneamente!")
                 
                 linhas_visualizacao = []
                 for r in range(4, sheet_bal_template.max_row + 1):
@@ -195,7 +206,7 @@ else:
                         valores_originais = []
                         for col_idx in colunas_meses:
                             val = sheet_bal_template.cell(row=r, column=col_idx).value
-                            valores_originais.append(float(val) if isinstance(val, (int, float)) else 0.0)
+                            valores_originais.append(converter_para_float(val))
                         
                         # Processa e calcula dinamicamente as alterações de cenário
                         if r == linha_receitas_operacionais or r == linha_venda_consumidor:
@@ -237,7 +248,7 @@ else:
                             if isinstance(val_hist, (int, float)):
                                 sheet_fc_template.cell(row=r, column=col_idx, value=f"={sheet_bal_template.title}!{openpyxl.utils.get_column_letter(col_idx)}{r}*$J$4")
 
-                # Gravação em memória para disponibilizar o download
+                # Gravação segura do resultado
                 output_web = io.BytesIO()
                 wb_template.save(output_web)
                 output_web.seek(0)
@@ -252,6 +263,7 @@ else:
                 )
 
         except Exception as e:
-            st.error(f"Erro ao processar as fórmulas com o modelo: {e}")
+            st.error(f"Erro ao processar o upload: {e}")
+            st.info("Garanta que o arquivo carregado é de facto uma planilha Excel (.xlsx) válida com os dados no formato do teste.xlsx.")
     else:
-        st.info("ℹ️ Insira os dados de simulação e carregue a planilha base para ver os resultados.")
+        st.info("ℹ️ Insira os dados de simulação e carregue o arquivo de dados para ver os resultados.")
