@@ -13,6 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Nome exato do arquivo que deve estar no GitHub
 ARQUIVO_TEMPLATE = "GOIAS NOVO DFC PROJETADO-SEM CORTE.xlsx"
 
 # --- CABEÇALHO PERSONALIZADO ---
@@ -35,50 +36,59 @@ with col_titulo:
 
 st.markdown("---")
 
-# 2. BARRA LATERAL (Campos Digitados de Precisão)
-st.sidebar.header("⚙️ Configurações da Simulação")
+# Verificação Amigável do Arquivo de Modelo
+if not os.path.exists(ARQUIVO_TEMPLATE):
+    st.error("⚠️ Atenção: Arquivo de Configuração em Falta!")
+    st.markdown(f"""
+    O arquivo de modelo necessário (**`{ARQUIVO_TEMPLATE}`**) não foi encontrado no servidor do Streamlit.
+    
+    ### 🛠️ Como corrigir isto em 2 passos rápidos:
+    1. Acede ao teu repositório **`fluxo-de-caixa-projetado`** no GitHub.
+    2. Clica em **Add file -> Upload files** e faz o upload do arquivo **`{ARQUIVO_TEMPLATE}`** para a mesma pasta onde está o teu código.
+    
+    *Assim que fizeres o commit no GitHub, esta página irá recarregar e funcionar automaticamente!*
+    """)
+else:
+    # 2. BARRA LATERAL (Campos Digitados de Precisão)
+    st.sidebar.header("⚙️ Configurações da Simulação")
 
-nome_cliente = st.sidebar.text_input("Nome do Cliente", value="RENATO")
+    nome_cliente = st.sidebar.text_input("Nome do Cliente", value="RENATO")
 
-arquivo_carregado = st.sidebar.file_uploader(
-    "Carrega a Planilha de Dados Históricos (.xlsx)", 
-    type=["xlsx"]
+    arquivo_carregado = st.sidebar.file_uploader(
+        "Carrega a Planilha de Dados Históricos (.xlsx)", 
+        type=["xlsx"]
 )
 
-st.sidebar.markdown("### 📊 Digite os percentuais de simulação:")
+    st.sidebar.markdown("### 📊 Digite os percentuais de simulação:")
 
-# Campos de digitação manual direta para precisão
-perc_receita = st.sidebar.number_input(
-    "Aumento/Diminuição da Receita (%)", 
-    min_value=-100.0, 
-    max_value=300.0, 
-    value=3.0, 
-    step=0.1,
-    format="%.2f"
-)
+    perc_receita = st.sidebar.number_input(
+        "Aumento/Diminuição da Receita (%)", 
+        min_value=-100.0, 
+        max_value=300.0, 
+        value=3.0, 
+        step=0.1,
+        format="%.2f"
+    )
 
-perc_lucro = st.sidebar.number_input(
-    "Lucratividade Líquida Desejada (%)", 
-    min_value=0.0, 
-    max_value=100.0, 
-    value=8.0, 
-    step=0.1,
-    format="%.2f"
-)
+    perc_lucro = st.sidebar.number_input(
+        "Lucratividade Líquida Desejada (%)", 
+        min_value=0.0, 
+        max_value=100.0, 
+        value=8.0, 
+        step=0.1,
+        format="%.2f"
+    )
 
-# Função para localizar dinamicamente a linha pelo nome da conta
-def localizar_linha(sheet, nome_conta):
-    for r in range(1, sheet.max_row + 1):
-        val = sheet.cell(row=r, column=3).value
-        if val and str(val).strip().upper() == nome_conta.strip().upper():
-            return r
-    return None
+    # Função para localizar dinamicamente a linha pelo nome da conta
+    def localizar_linha(sheet, nome_conta):
+        for r in range(1, sheet.max_row + 1):
+            val = sheet.cell(row=r, column=3).value
+            if val and str(val).strip().upper() == nome_conta.strip().upper():
+                return r
+        return None
 
-# 3. COMPUTAÇÃO E SIMULAÇÃO DINÂMICA
-if arquivo_carregado is not None:
-    if not os.path.exists(ARQUIVO_TEMPLATE):
-        st.error(f"Erro: O arquivo modelo '{ARQUIVO_TEMPLATE}' não foi encontrado no servidor.")
-    else:
+    # 3. COMPUTAÇÃO E SIMULAÇÃO DINÂMICA
+    if arquivo_carregado is not None:
         try:
             r_adj = perc_receita / 100.0
             l_adj = perc_lucro / 100.0
@@ -89,7 +99,7 @@ if arquivo_carregado is not None:
             aba_usuario_nome = wb_usuario.sheetnames[0]
             sheet_usuario = wb_usuario[aba_usuario_nome]
 
-            # 2. Carregar o arquivo de template (com fórmulas completas de FC_PROJETADO)
+            # 2. Carregar o arquivo de template
             wb_template = openpyxl.load_workbook(ARQUIVO_TEMPLATE, data_only=False)
             sheet_bal_template = wb_template['BAL_25']
             sheet_fc_template = wb_template['FC_PROJETADO']
@@ -117,7 +127,7 @@ if arquivo_carregado is not None:
             if not all([linha_receitas_operacionais, linha_compra_mercadoria, linha_insumos, linha_despesa_total]):
                 st.error("Erro: Não foi possível mapear todas as contas-chave necessárias na sua planilha. Verifique os nomes das contas na Coluna C.")
             else:
-                colunas_meses = [4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37] # D, G, J, M, P, S, V, Y, AB, AE, AH, AK
+                colunas_meses = [4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37]
                 nomes_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
                 # --- PROCESSAMENTO DOS VALORES HISTÓRICOS ---
@@ -169,7 +179,6 @@ if arquivo_carregado is not None:
                             val = sheet_bal_template.cell(row=r, column=col_idx).value
                             valores_originais.append(float(val) if isinstance(val, (int, float)) else 0.0)
                         
-                        # Aplicação dinâmica das regras baseada no mapeamento encontrado
                         if r == linha_receitas_operacionais or r == linha_venda_consumidor:
                             valores_projetados = [v * (1 + r_adj) for v in valores_originais]
                         elif r in [linha_compra_mercadoria, linha_insumos]:
@@ -196,7 +205,6 @@ if arquivo_carregado is not None:
                 st.dataframe(df_formatado, use_container_width=True, height=450)
 
                 # --- EXCEL FÍSICO COM FÓRMULAS ---
-                # Atualiza as receitas e despesas com as novas metas para exportação
                 for r in range(1, sheet_fc_template.max_row + 1):
                     cell_conta = sheet_bal_template.cell(row=r, column=3).value
                     if cell_conta == "1.1 Venda Consumidor Final":
@@ -226,5 +234,5 @@ if arquivo_carregado is not None:
 
         except Exception as e:
             st.error(f"Erro ao processar as fórmulas com o modelo: {e}")
-else:
-    st.info("ℹ️ Insira os dados de simulação e carregue a planilha base para ver os resultados.")
+    else:
+        st.info("ℹ️ Insira os dados de simulação e carregue a planilha base para ver os resultados.")
